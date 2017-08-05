@@ -12,9 +12,6 @@ import urllib.request, urllib.error, urllib.parse
 import re
 import redis
 import traceback
-import os
-import subprocess
-from collections import defaultdict
 
 import json
 from bs4 import BeautifulSoup
@@ -155,11 +152,11 @@ def parse_comment(comment, talkback_id):
 #     return True
 
 def save_article(article, db_articles):
-    key = article['article_id']
+    key = "{}".format(article['article_id'])
     db_articles.set(key, json.dumps(article))
 
 def save_comment(comment, db_comments):
-    key = comment['tId'] + '_' + comment['cId']
+    key = "{}_{}".format(comment['tId'], comment['cId'])
     db_comments.set(key, json.dumps(comment))
 
 
@@ -179,7 +176,15 @@ def main():
     count_saved_articles = 0
     count_saved_comments = 0
     for article_link in article_links:
-        print('get ' + article_link)
+        if DEV_PRINT:
+            print('  get {}'.format(article_link))
+
+        # those raise exceptions because they result in 403
+        if '/promotion/' in article_link:
+            continue
+        if '/immobilien/reportagen/' in article_link:
+            continue
+
         try:
             (article, part_comments) = get_and_parse_article(article_link)
             if not article:
@@ -192,7 +197,7 @@ def main():
             continue
 
         # if not article_uptodate(article):
-        save_article(article, writer_articles)
+        save_article(article, db_articles)
         count_saved_articles += 1
 
         # if not possible to comment # it's more performant to write anyways
@@ -207,7 +212,7 @@ def main():
             for comment in comments_html:
                 # if not comment_uptodate(comment): # it's more performant to write anyways
                 comment_parsed = parse_comment(comment, article['talkback_id'])
-                save_comment(comment_parsed, writer_comments)
+                save_comment(comment_parsed, db_comments)
                 count_saved_comments += 1
 
         except Exception as e: # timeouts sometimes
@@ -217,7 +222,6 @@ def main():
                 traceback.print_exc()
             continue
 
-        break
 
 
 

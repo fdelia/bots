@@ -26,7 +26,7 @@ hdr = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKi
 
 DELAY_MS = 100.0 # before each request
 DEV_PRINT = False
-SHOW_ERR = True
+SHOW_ERR = False
 PARSER = "html.parser"
 
 
@@ -54,14 +54,13 @@ def get_and_parse_article(link):
     time.sleep(DELAY_MS / 1000.0) # delay
     req = urllib.request.Request("http://www.20min.ch" + link, headers=hdr)
     uo = urllib.request.urlopen(req, timeout=5)
-    # div_content = SoupStrainer("div", "content")
     site = BeautifulSoup(uo, PARSER)
     if DEV_PRINT:
         print('     parsed')
 
     story_head = site.find("div", class_='story_head')
     if story_head is None: #then its not an typical article site
-        return False
+        return (None, None)
 
     text = ''
     for t in site.find("div", class_='story_text').findAll("p"):
@@ -77,12 +76,15 @@ def get_and_parse_article(link):
 
     regex = re.compile(r'(?=[^\d])[a-zA-Z-\/]*(\d{8})')
     m = regex.match(link)
-    if m is None: return False
+    if m is None:
+        return (None, None)
     article_id = m.group(1)
 
     talkback_id = site.find("div", id='talkback')
-    if talkback_id is not None: talkback_id = talkback_id['data-talkbackid']
-    if not talkback_id: talkback_id = article_id
+    if talkback_id is not None:
+        talkback_id = talkback_id['data-talkbackid']
+    if not talkback_id:
+        talkback_id = article_id
 
     article =  {
         'article_id': int(article_id),
@@ -133,14 +135,14 @@ def parse_comment(comment, talkback_id):
         'mob': viamobile,
         'vup': int(comment['data-voteup']),
         'vdo': int(comment['data-votedown']),
-        'title': comment.find('h3', class_='title').get_text(),
-        'author': comment.find('span', class_='author').get_text(),
+        'tit': comment.find('h3', class_='title').get_text(),
+        'aut': comment.find('span', class_='author').get_text(),
         'time': comment.find('span', class_='time').get_text(),
-        'text': comment.find('p', class_='content').get_text()
+        'con': comment.find('p', class_='content').get_text()
     }
 
     # remove newlines for CSV
-    for v in ['title', 'author', 'text']:
+    for v in ['tit', 'aut', 'con']:
         comment_dict[v] = comment_dict[v].replace('\n', ' ')
 
     return comment_dict
@@ -184,6 +186,8 @@ def main():
             continue
         if '/immobilien/reportagen/' in article_link:
             continue
+        if '/paidpost/' in article_link:
+            continue
 
         try:
             (article, part_comments) = get_and_parse_article(article_link)
@@ -192,8 +196,8 @@ def main():
         except Exception as e: # it usually fails on stories which are promos because of some redirect (there are comments too there, but whatever)
             if SHOW_ERR:
                 print('     err: exception getting article from ' + article_link)
-                print(e)
                 traceback.print_exc()
+                print(e)
             continue
 
         # if not article_uptodate(article):
@@ -218,18 +222,15 @@ def main():
         except Exception as e: # timeouts sometimes
             if SHOW_ERR:
                 print('     err: exception getting comments for ' + str(article['talkback_id']))
-                print(e)
                 traceback.print_exc()
+                print(e)
             continue
-
-
 
 
     print('    saved articles: {}'.format(count_saved_articles))
     print('    saved comments: {}'.format(count_saved_comments))
     print('    total # comments in DB: {}'.format(len(db_comments.keys())))
     print('    time taken: {} Min.'.format((time.time() - starting_time)/60))
-
 
 
 if __name__ == "__main__":

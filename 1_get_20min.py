@@ -14,6 +14,7 @@ import urllib.request, urllib.error, urllib.parse
 import re
 import csv
 import traceback
+import os
 from collections import defaultdict
 
 import json
@@ -220,12 +221,29 @@ def main():
 
         break
 
+    file_articles.close()
+    file_comments.close()
 
 
     # TODO checking for doubles in the end
-    # get already saved articles and comments for uptodate-check
-    # file_articles = open(filename_articles, 'r', encoding='utf-8')
-    # file_comments = open(filename_comments, 'r', encoding='utf-8')
+    # for safety reasons files are moved to temp
+    os.rename(filename_articles, filename_articles + '_temp')
+    os.rename(filename_comments, filename_comments + '_temp')
+
+    # checking for and removing doubles
+    file_articles = open(filename_articles + '_temp', 'r', encoding='utf-8')
+    file_comments = open(filename_comments + '_temp', 'r', encoding='utf-8')
+    reader_articles = csv.reader(file_articles)
+    reader_comments = csv.reader(file_comments)
+
+    print(reader_articles)
+
+    # for articles and comments
+    # 1. get all IDs in a set
+    # 2. for each ID take the latest row with that ID from the csv
+    # 3. save that row into a new csv
+    # 4. correct files / move temp to permanent
+
     # reader_articles = csv.reader(file_articles)
     # reader_comments = csv.reader(file_comments)
     #

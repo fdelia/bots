@@ -201,7 +201,7 @@ def main():
 
     # TODO load IDs of already saved comments and articles
     # (don't save num of comments into article row)
-    # TODO get article_links
+
     # TODO get article content and comments
     # TODO save line by line to CSV-file
 
@@ -209,19 +209,18 @@ def main():
     today = datetime.date.today()
     filename_articles = "articles_{:04d}_{:02d}.csv".format(today.year, today.month)
     filename_comments = "comments_{:04d}_{:02d}.csv".format(today.year, today.month)
-    
-    # TODO check if this works, maybe encode text?
+
+    # TODO check it works with this delimiter, maybe encode text?
     DELIMITER = ','
 
     with open(filename_articles, 'wb') as file_articles:
         writer_articles = csv.writer(file_articles, delimiter=DELIMITER)
     with open(filename_comments, 'wb') as file_comments:
         writer_comments = csv.writer(file_comments, delimiter=DELIMITER)
-
+    # for line in data: writer.writerow(line)
     article_links = get_article_links()
     article_links = list(set(article_links)) # remove doubles
 
-    return False
 
 
 
@@ -240,12 +239,21 @@ def main():
                 print(e)
             continue
 
+
+        print(article)
+        break
+
+
         # save temporarly
         comments_part = article['comments_part']
         article['comments_part'] = None
 
-        if save_article_if_needed(article, db_articles) is not False:
+        if not article_exists(article):
+            save_article(article)
             saved_articles += 1
+
+        # if save_article_if_needed(article, db_articles) is not False:
+        #     saved_articles += 1
 
         if not article['talkback_id']: continue
 

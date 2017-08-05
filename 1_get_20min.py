@@ -2,19 +2,18 @@
 '''
 Author: Fabio D'Elia
 Description: Scraps all comments and article content from all articles
-    linked in the home page of 20min.ch and saves them to CSV-files.
-    The CSV-files are rotated monthly.
+    linked in the home page of 20min.ch and saves into a redis DB.
 
-    Every scrapped item is saved, even if it was saved before.
-    To ensure there are no duplicates, after each run, duplicates are removed.
+    The contents need to be exported into CSV.
 '''
 import time
 import datetime
 import urllib.request, urllib.error, urllib.parse
 import re
-import csv
+import redis
 import traceback
 import os
+import subprocess
 from collections import defaultdict
 
 import json
@@ -32,7 +31,6 @@ DELAY_MS = 100.0 # before each request
 DEV_PRINT = False
 SHOW_ERR = True
 PARSER = "html.parser"
-DELIMITER = ',' # TODO check it works with this delimiter, maybe encode text?
 
 
 def get_article_links():
@@ -127,7 +125,9 @@ def parse_comment(comment, talkback_id):
     else:
         viamobile = 1
 
+    # should not happen
     # if not comment['id']:
+    #     continue
 
     cId = comment['id'].replace('thread', '').replace('msg', '')
     comment_dict = {
@@ -148,32 +148,28 @@ def parse_comment(comment, talkback_id):
 
     return comment_dict
 
+# def article_uptodate(article, db_articles):
+#     return True
+#
+# def comment_uptodate(comment, db_comments):
+#     return True
 
-def save_article(article, writer_articles):
-    # attention: order of values is important!
-    writer_articles.writerow(article.values())
+def save_article(article, db_articles):
+    key = article['article_id']
+    db_articles.set(key, json.dumps(article))
 
-def save_comment(comment, writer_comments):
-    # attention: order of values is important!
-    writer_comments.writerow(comment.values())
+def save_comment(comment, db_comments):
+    key = comment['tId'] + '_' + comment['cId']
+    db_comments.set(key, json.dumps(comment))
 
 
 def main():
     print('20min.ch   ' + time.strftime('%c'))
     starting_time = time.time()
 
-    # filenames
-    today = datetime.date.today()
-    filename_articles = "articles_{:04d}_{:02d}.csv".format(today.year, today.month)
-    filename_comments = "comments_{:04d}_{:02d}.csv".format(today.year, today.month)
-
-
-    # init csv-files for saving
-    file_articles = open(filename_articles, 'w+', encoding='utf-8')
-    file_comments = open(filename_comments, 'w+', encoding='utf-8')
-    writer_articles = csv.writer(file_articles, delimiter=DELIMITER, quoting=csv.QUOTE_ALL)
-    writer_comments = csv.writer(file_comments, delimiter=DELIMITER, quoting=csv.QUOTE_ALL)
-
+    # init DBs
+    db_articles = redis.StrictRedis(host='localhost', port=6379, db=0)
+    db_comments = redis.StrictRedis(host='localhost', port=6379, db=1)
 
     # get all links
     article_links = get_article_links()
@@ -195,10 +191,11 @@ def main():
                 traceback.print_exc()
             continue
 
+        # if not article_uptodate(article):
         save_article(article, writer_articles)
         count_saved_articles += 1
 
-        # if not possible to comment
+        # if not possible to comment # it's more performant to write anyways
         if not article['talkback_id']:
             continue
 
@@ -208,6 +205,7 @@ def main():
                 comments_html += part_comments.findAll('li', class_='comment')
 
             for comment in comments_html:
+                # if not comment_uptodate(comment): # it's more performant to write anyways
                 comment_parsed = parse_comment(comment, article['talkback_id'])
                 save_comment(comment_parsed, writer_comments)
                 count_saved_comments += 1
@@ -221,45 +219,11 @@ def main():
 
         break
 
-    file_articles.close()
-    file_comments.close()
-
-
-    # TODO checking for doubles in the end
-    # for safety reasons files are moved to temp
-    os.rename(filename_articles, filename_articles + '_temp')
-    os.rename(filename_comments, filename_comments + '_temp')
-
-    # checking for and removing doubles
-    file_articles = open(filename_articles + '_temp', 'r', encoding='utf-8')
-    file_comments = open(filename_comments + '_temp', 'r', encoding='utf-8')
-    reader_articles = csv.reader(file_articles)
-    reader_comments = csv.reader(file_comments)
-
-    print(reader_articles)
-
-    # for articles and comments
-    # 1. get all IDs in a set
-    # 2. for each ID take the latest row with that ID from the csv
-    # 3. save that row into a new csv
-    # 4. correct files / move temp to permanent
-
-    # reader_articles = csv.reader(file_articles)
-    # reader_comments = csv.reader(file_comments)
-    #
-    # articles_saved = defaultdict(list)
-    # comments_saved = defaultdict(list)
-    # for article in reader_articles:
-    #     # [article_id] = num_comments
-    #     articles_saved[article[0]] = [article[2]]
-    #
-    # for comment in reader_comments:
-    #     print(comment)
-
 
 
     print('    saved articles: {}'.format(count_saved_articles))
     print('    saved comments: {}'.format(count_saved_comments))
+    print('    total # comments in DB: {}'.format(len(db_comments.keys())))
     print('    time taken: {} Min.'.format((time.time() - starting_time)/60))
 
 

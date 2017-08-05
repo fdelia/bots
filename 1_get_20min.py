@@ -4,15 +4,17 @@ Author: Fabio D'Elia
 Description: Scraps all comments and article content from all articles
     linked in the home page of 20min.ch and saves them to CSV-files.
     The CSV-files are rotated monthly.
+
+    Every scrapped item is saved, even if it was saved before.
+    To ensure there are no duplicates, after each run, duplicates are removed.
 '''
 import time
 import datetime
 import urllib.request, urllib.error, urllib.parse
 import re
-import threading
-import queue
-import zlib
 import csv
+import traceback
+from collections import defaultdict
 
 import json
 from bs4 import BeautifulSoup
@@ -26,11 +28,10 @@ hdr = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKi
        'Connection': 'keep-alive'}
 
 DELAY_MS = 100.0 # before each request
-MAX_THREADS = 8
 DEV_PRINT = False
 SHOW_ERR = True
 PARSER = "html.parser"
-
+DELIMITER = ',' # TODO check it works with this delimiter, maybe encode text?
 
 
 def get_article_links():
@@ -51,9 +52,9 @@ def get_article_links():
 # text = .story_text p's
 # anzahl kommentare = .left .more_link_top
 # kommentar = .entry .title / .content / .author / .time / .viamobile
-def get_article(link):
-    if DEV_PRINT: print('get article ' + link)
+def get_and_parse_article(link):
     global hdr
+    if DEV_PRINT: print('get article ' + link)
     time.sleep(DELAY_MS / 1000.0) # delay
     req = urllib.request.Request("http://www.20min.ch" + link, headers=hdr)
     uo = urllib.request.urlopen(req, timeout=5)
@@ -107,164 +108,141 @@ def get_article(link):
 
 # some of the comments are still not parsed since a user would have to make one more request by clicking "Kommentare anzeigen (2)" on answers
 # i thought i'd be enough comments for a first analysis
-def get_and_save_comments(talkback_id, db_comments, queue):
-    if DEV_PRINT: print('get and save comments ' + talkback_id)
+def get_comments(talkback_id):
     global hdr
+    if DEV_PRINT: print('get and save comments ' + talkback_id)
     time.sleep(DELAY_MS / 1000.0) # delay
 
     url = 'http://www.20min.ch/community/storydiscussion/messageoverview.tmpl?storyid=' + str(talkback_id) + '&type=1&l=0'
     req = urllib.request.Request(url, headers=hdr)
     site = BeautifulSoup(urllib.request.urlopen(req, timeout=5), PARSER)
+    return site.findAll('li', class_='comment')
 
-    num_saved = save_comments(site, db_comments, talkback_id)
-    queue.put(num_saved)
-    return num_saved
+
+def parse_comment(comment, talkback_id):
+
+    if comment.find('span', class_='viamobile') is None:
+        viamobile = 0
+    else:
+        viamobile = 1
+
+    # if not comment['id']:
+
+    cId = comment['id'].replace('thread', '').replace('msg', '')
+    comment_dict = {
+        'tId': talkback_id,
+        'cId': int(cId),
+        'mob': viamobile,
+        'vup': int(comment['data-voteup']),
+        'vdo': int(comment['data-votedown']),
+        'title': comment.find('h3', class_='title').get_text(),
+        'author': comment.find('span', class_='author').get_text(),
+        'time': comment.find('span', class_='time').get_text(),
+        'text': comment.find('p', class_='content').get_text()
+    }
+
+    # remove newlines for CSV
+    for v in ['title', 'author', 'text']:
+        comment_dict[v] = comment_dict[v].replace('\n', ' ')
+
+    return comment_dict
+
 
 def save_article(article, writer_articles):
     # attention: order of values is important!
-    writer_articles.writerow(list(article.values()))
+    writer_articles.writerow(article.values())
 
-def save_comments(site, db_comments, talkback_id):
-    found_comments = 0
-    saved_comments = 0
-    for comment in site.findAll('li', class_='comment'):
-        found_comments += 1
-
-        viamobile = 1
-        if comment.find('span', class_='viamobile') is None: viamobile = 0
-
-        comment_dict = {
-        'tId': talkback_id,
-        'cId': comment['id'],
-        'tit': comment.find('h3', class_='title').get_text(),
-        'aut': comment.find('span', class_='author').get_text(),
-        'time': comment.find('span', class_='time').get_text(),
-        'con': comment.find('p', class_='content').get_text(),
-        'mob': viamobile,
-        'vup': comment['data-voteup'],
-        'vdo': comment['data-votedown']
-        }
-
-        '''
-        27.01.2017 23:00
-        RENAMES = {
-        'comment_id': 'cId',
-        'data-votedown': 'vdo',
-        'data-voteup': 'vup',
-        'viamobile': 'mob',
-        'title': 'tit',
-        'talkback_id': 'tId',
-        'author': 'aut',
-        'content': 'con'
-        }
-        '''
-
-
-        if not comment_dict['cId']: continue
-        comment_dict['cId'] = comment_dict['cId'].replace('thread', '').replace('msg', '')
-        if save_comment_if_needed(comment_dict, db_comments) is not False:
-            saved_comments += 1
-
-    # http://www.20min.ch/community/storydiscussion/messageoverview.tmpl?storyid=14623185&type=1&l=0&channel=de/leben
-
-    # http://www.20min.ch/schweiz/news/story/So-haben-die-AKW-Gemeinden-gestimmt-13471081
-    # talkback id 21748185 = story id hier
-
-    return found_comments
-
-# TODO check if article_id already there
-def article_exists(article):
-    return False
-
-# TODO check if comment_id already there and up/downvotes the same
-def comment_exists(comment):
-    return False
+def save_comment(comment, writer_comments):
+    # attention: order of values is important!
+    writer_comments.writerow(comment.values())
 
 
 def main():
     print('20min.ch   ' + time.strftime('%c'))
     starting_time = time.time()
 
-    # TODO load IDs of already saved comments and articles
-    # (don't save num of comments into article row)
-
-    # TODO get article content and comments
-    # TODO save line by line to CSV-file
-
-    # init csv-files
+    # filenames
     today = datetime.date.today()
     filename_articles = "articles_{:04d}_{:02d}.csv".format(today.year, today.month)
     filename_comments = "comments_{:04d}_{:02d}.csv".format(today.year, today.month)
 
-    # TODO check it works with this delimiter, maybe encode text?
-    DELIMITER = ','
 
-    file_articles = open(filename_articles, 'w', encoding='utf-8')
+    # init csv-files for saving
+    file_articles = open(filename_articles, 'w+', encoding='utf-8')
+    file_comments = open(filename_comments, 'w+', encoding='utf-8')
     writer_articles = csv.writer(file_articles, delimiter=DELIMITER, quoting=csv.QUOTE_ALL)
-    file_comments = open(filename_comments, 'w', encoding='utf-8')
     writer_comments = csv.writer(file_comments, delimiter=DELIMITER, quoting=csv.QUOTE_ALL)
-    # for line in data: writer.writerow(line)
 
 
-
+    # get all links
     article_links = get_article_links()
     article_links = list(set(article_links)) # remove doubles
 
-    saved_articles = 0
-    saved_comments = 0
+    # go through links
+    count_saved_articles = 0
+    count_saved_comments = 0
     for article_link in article_links:
-        print('get '+article_link)
+        print('get ' + article_link)
         try:
-            (article, part_comments) = get_article(article_link)
-            if not article: continue
+            (article, part_comments) = get_and_parse_article(article_link)
+            if not article:
+                continue
         except Exception as e: # it usually fails on stories which are promos because of some redirect (there are comments too there, but whatever)
             if SHOW_ERR:
                 print('     err: exception getting article from ' + article_link)
                 print(e)
+                traceback.print_exc()
             continue
 
-        if not article_exists(article):
-            save_article(article, writer_articles)
-            saved_articles += 1
-
+        save_article(article, writer_articles)
+        count_saved_articles += 1
 
         # if not possible to comment
-        if not article['talkback_id']: continue
-
-        break
+        if not article['talkback_id']:
+            continue
 
         try:
-            if comments_part is not None:
-                saved_comments += save_comments(comments_part, db_comments, article['talkback_id'])
+            comments_html = get_comments(article['talkback_id'])
+            if part_comments:
+                comments_html += part_comments.findAll('li', class_='comment')
 
-
-            saved_comments += get_and_save_comments(article['talkback_id'], db_comments)
-            # threads.append(threading.Thread(target=get_and_save_comments, args=(article['talkback_id'], db_comments, result)))
-            # if len(threads) >= MAX_THREADS:
-            #     for t in threads: t.start()
-            #     for t in threads:
-            #         t.join()
-            #         saved_comments += result.get()
-            #     threads = []
-
+            for comment in comments_html:
+                comment_parsed = parse_comment(comment, article['talkback_id'])
+                save_comment(comment_parsed, writer_comments)
+                count_saved_comments += 1
 
         except Exception as e: # timeouts sometimes
             if SHOW_ERR:
-                print('     err: exception getting comments for ' + article['talkback_id'])
+                print('     err: exception getting comments for ' + str(article['talkback_id']))
                 print(e)
+                traceback.print_exc()
             continue
 
-    # this will happen all the time if parallel threading is used
-    # if article['num_comments'] and saved_comments < int(article['num_comments'].replace(' Kommentare', '')):
-    #     print '     info: found ' + str(saved_comments) + ', expected ' + str(int(article['num_comments'].replace(' Kommentare', ''))) + ' comments, for ' + str(article['talkback_id'])
+        break
 
 
 
+    # TODO checking for doubles in the end
+    # get already saved articles and comments for uptodate-check
+    # file_articles = open(filename_articles, 'r', encoding='utf-8')
+    # file_comments = open(filename_comments, 'r', encoding='utf-8')
+    # reader_articles = csv.reader(file_articles)
+    # reader_comments = csv.reader(file_comments)
+    #
+    # articles_saved = defaultdict(list)
+    # comments_saved = defaultdict(list)
+    # for article in reader_articles:
+    #     # [article_id] = num_comments
+    #     articles_saved[article[0]] = [article[2]]
+    #
+    # for comment in reader_comments:
+    #     print(comment)
 
-    # print('   article links: ' + str(len(article_links)) + ', saved/updated articles: ' + str(saved_articles) + ', saved comments: '+ str(saved_comments))
-    # print('   new articles: ' + str(len(list(db_articles.keys())) - num_articles_before))
-    # # print '   new comments: ' + str(len(db_comments.keys()) - num_comments_before)
-    # print('   time taken: ' + str((time.time() - starting_time)/60) + ' Min.')
+
+
+    print('    saved articles: {}'.format(count_saved_articles))
+    print('    saved comments: {}'.format(count_saved_comments))
+    print('    time taken: {} Min.'.format((time.time() - starting_time)/60))
 
 
 

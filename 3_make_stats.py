@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import json
 import redis
 import numpy as np
@@ -39,19 +39,78 @@ def compute_stats_comments(table):
         * last 7 days
 
         for features:
-            * number of comments
-            * via mobile
             * upvotes
             * downvotes
-            * if comment is an answer ("@")
+            TODO * via mobile
+            TODO * if comment is an answer ("@")
     '''
-    stats = {}
+    features = ['vup', 'vdo']
+
+    # TODO make this more abstract
+    times = {
+        'all': timedelta(days=9999),
+        '7 days': timedelta(days=7),
+        '1 day': timedelta(days=1)
+    }
+    stats_all = {}
+    stats_last1 = {}
+    stats_last7 = {}
+    missing_all = {}
+    missing_last1 = {}
+    missing_last7 = {}
+
+    for f in features:
+        stats_all[f] = []
+        stats_last1[f] = []
+        stats_last7[f] = []
+        missing_all[f] = 0
+        missing_last1[f] = 0
+        missing_last7[f] = 0
+
+    now = datetime.now()
     for key in table.scan_iter():
         item = json.loads(table.get(key).decode('utf-8'))
+        dt = datetime.strptime(item['time'].replace('am ', ''), '%d.%m.%Y %H:%M')
 
-        print(item)
-        break
+        for f in features:
+            if f in item:
+                stats_all[f].append(item[f])
+                if (now - dt) < timedelta(days=7):
+                    stats_last7[f].append(item[f])
+                if (now - dt) < timedelta(days=1):
+                    stats_last1[f].append(item[f])
 
+            else:
+                missing_all[f] += 1
+                if (now - dt) < timedelta(days=7):
+                    missing_last7[f] += 1
+                if (now - dt) < timedelta(days=1):
+                    missing_last1[f] += 1
+
+
+    stats = {}
+    for t, val in times.items():
+        stats[t] = {}
+        if t == 'all':
+            s = stats_all
+            m = missing_all
+        if t == '1 day':
+            s = stats_last1
+            m = missing_last1
+        if t == '7 days':
+            s = stats_last7
+            m = missing_last7
+
+        for f in features:
+            arr = np.array(s[f], dtype='float')
+            stats[t][f] = {
+                'count': len(arr),
+                'mean': np.mean(arr),
+                'std': np.std(arr),
+                'max': np.max(arr),
+                'min': np.min(arr),
+                'missing': m[f]
+            }
 
     return stats
 
@@ -61,8 +120,8 @@ def save_obj(obj, file):
 
 def main():
     # init file
-    today = datetime.datetime.now()
-    filename = "stats{:04d}_{:02d}_{:02d}_{:02d}h.csv".format(today.year, today.month, today.day, today.hour)
+    now = datetime.now()
+    filename = "stats_{:04d}_{:02d}".format(now.year, now.month)
     f_open = open(filename, 'w')
 
     # init DBs

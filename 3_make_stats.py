@@ -68,9 +68,14 @@ def compute_stats_comments(table):
         missing_last7[f] = 0
 
     now = datetime.now()
+    time_first = now
+    time_last = datetime(1970, 1, 1)
     for key in table.scan_iter():
         item = json.loads(table.get(key).decode('utf-8'))
         dt = datetime.strptime(item['time'].replace('am ', ''), '%d.%m.%Y %H:%M')
+
+        time_first = min(time_first, dt)
+        time_last = max(time_last, dt)
 
         for f in features:
             if f in item:
@@ -88,7 +93,10 @@ def compute_stats_comments(table):
                     missing_last1[f] += 1
 
 
-    stats = {}
+    stats = {
+        'time_first': time_first.strftime("%Y-%m-%d %H:%M:%S"),
+        'time_last': time_last.strftime("%Y-%m-%d %H:%M:%S")
+    }
     for t, val in times.items():
         stats[t] = {}
         if t == 'all':

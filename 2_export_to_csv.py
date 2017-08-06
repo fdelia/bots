@@ -21,7 +21,7 @@ def export_table(table, writer, values_order):
 
     counter = 0
     for key in table.scan_iter():
-        item = json.loads(table.get(key))
+        item = json.loads(table.get(key).decode('utf-8'))
 
         # TODO how to handle missing value?
         values = []
@@ -52,6 +52,9 @@ def main():
         ['tId', 'article_id', 'updated', 'num_comments', 'link', 'header', 'sub', 'text'])
     res_c = export_table(db_comments, writer_comments,
         ['tId', 'cId', 'mob', 'vup', 'vdo', 'tit', 'aut', 'time', 'con'])
+
+    file_articles.close()
+    file_comments.close()
 
     # report
     print("exported articles: {} ".format(res_a))

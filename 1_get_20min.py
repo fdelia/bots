@@ -50,7 +50,7 @@ def get_article_links():
 # kommentar = .entry .title / .content / .author / .time / .viamobile
 def get_and_parse_article(link):
     global hdr
-    if DEV_PRINT: print('get article ' + link)
+    if DEV_PRINT: print('get article {}'.format(link))
     time.sleep(DELAY_MS / 1000.0) # delay
     req = urllib.request.Request("http://www.20min.ch" + link, headers=hdr)
     uo = urllib.request.urlopen(req, timeout=5)
@@ -108,7 +108,7 @@ def get_and_parse_article(link):
 # i thought i'd be enough comments for a first analysis
 def get_comments(talkback_id):
     global hdr
-    if DEV_PRINT: print('get and save comments ' + talkback_id)
+    if DEV_PRINT: print('get comments {}'.format(talkback_id))
     time.sleep(DELAY_MS / 1000.0) # delay
 
     url = 'http://www.20min.ch/community/storydiscussion/messageoverview.tmpl?storyid=' + str(talkback_id) + '&type=1&l=0'
@@ -129,9 +129,10 @@ def parse_comment(comment, talkback_id):
     #     continue
 
     cId = comment['id'].replace('thread', '').replace('msg', '')
+
     comment_dict = {
         'tId': talkback_id,
-        'cId': int(cId),
+        'cId': cId, # string
         'mob': viamobile,
         'vup': int(comment['data-voteup']),
         'vdo': int(comment['data-votedown']),
@@ -163,7 +164,7 @@ def save_comment(comment, db_comments):
 
 
 def main():
-    print('20min.ch   ' + time.strftime('%c'))
+    print('20min.ch   {}'.format(time.strftime('%c')))
     starting_time = time.time()
 
     # init DBs

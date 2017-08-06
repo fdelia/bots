@@ -88,17 +88,17 @@ def get_and_parse_article(link):
 
     article =  {
         'article_id': int(article_id),
-        'talkback_id': int(talkback_id),
+        'tId': int(talkback_id),
         'num_comments': int(num_comments),
         'updated': time.time(),
         'link': link,
         'header': story_head.find("h1").get_text(),
-        'subtitle': story_head.find("h3").get_text(),
+        'sub': story_head.find("h3").get_text(),
         'text': text
     }
 
     # remove newlines for CSV
-    for v in ['header', 'subtitle', 'text']:
+    for v in ['header', 'sub', 'text']:
         article[v] = article[v].replace('\n', ' ')
 
     part_comments = site.find('ul', class_='comments') # not saved
@@ -125,8 +125,8 @@ def parse_comment(comment, talkback_id):
         viamobile = 1
 
     # should not happen
-    # if not comment['id']:
-    #     continue
+    if not comment['id']:
+        return False
 
     cId = comment['id'].replace('thread', '').replace('msg', '')
 
@@ -206,23 +206,25 @@ def main():
         count_saved_articles += 1
 
         # if not possible to comment # it's more performant to write anyways
-        if not article['talkback_id']:
+        if not article['tId']:
             continue
 
         try:
-            comments_html = get_comments(article['talkback_id'])
+            comments_html = get_comments(article['tId'])
             if part_comments:
                 comments_html += part_comments.findAll('li', class_='comment')
 
             for comment in comments_html:
                 # if not comment_uptodate(comment): # it's more performant to write anyways
-                comment_parsed = parse_comment(comment, article['talkback_id'])
+                comment_parsed = parse_comment(comment, article['tId'])
+                if not comment_parsed:
+                    continue
                 save_comment(comment_parsed, db_comments)
                 count_saved_comments += 1
 
         except Exception as e: # timeouts sometimes
             if SHOW_ERR:
-                print('     err: exception getting comments for ' + str(article['talkback_id']))
+                print('     err: exception getting comments for ' + str(article['tId']))
                 traceback.print_exc()
                 print(e)
             continue

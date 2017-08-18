@@ -53,6 +53,7 @@ def main():
     res_c = export_table(db_comments, writer_comments,
         ['tId', 'cId', 'mob', 'vup', 'vdo', 'tit', 'aut', 'time', 'con'])
 
+    # close files
     file_articles.close()
     file_comments.close()
 
